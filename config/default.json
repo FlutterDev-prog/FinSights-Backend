@@ -1,0 +1,5 @@
+
+{
+"mongoURI": "mongodb+srv://credboxdevelopment:0YoKvSM5h98Tzc4H@credbox-cluster0.exqtrdu.mongodb.net/Credbox?retryWrites=true&w=majority&appName=Credbox-Cluster0",
+"flutter__secret": "flutter__secret"
+}
