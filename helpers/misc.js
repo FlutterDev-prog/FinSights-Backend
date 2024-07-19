@@ -1,50 +1,51 @@
 const Chats = require("../schema/Chats");
 const { v4: uuidV4 } = require("uuid");
+const mongoose = require('mongoose');
 
-const addUser = ({ receiverEmail, senderEmail }, socket) => {
-    if (!senderEmail || !receiverEmail) {
+const addUser = ({ receiverId, senderId }, socket) => {
+    if (!senderId || !receiverId) {
         return {
             error: "You tried to add zero chat"
         };
     }
-    const users = { receiverEmail, senderEmail };
+    const users = { receiverId, senderId };
     console.log(users);
+
+    // Convert string IDs to ObjectId
+    const senderObjectId = new mongoose.Types.ObjectId(senderId);
+    const receiverObjectId = new mongoose.Types.ObjectId(receiverId);
 
     Chats.aggregate([
         {
-            $match: { receiverEmail, senderEmail },
+            $match: {
+                $or: [
+                    { senderId: senderObjectId, receiverId: receiverObjectId },
+                    { senderId: receiverObjectId, receiverId: senderObjectId }
+                ]
+            }
         }
     ]).then((chat) => {
         if (chat.length > 0) {
-            socket.emit('openChat', { ...chat[0] })
+            // If chat exists, return the existing chat
+            socket.emit('openChat', { ...chat[0] });
         } else {
-            Chats.aggregate([
-                {
-                    $match: { receiverEmail: senderEmail, senderEmail: receiverEmail }
-                }
-            ]).then(async (lastAttempt) => {
-                if (lastAttempt.length > 0) {
-                    socket.emit('openChat', { ...lastAttempt[0] })
-                } else {
+            // If no chat found, create a new chat room
+            const newRoomId = uuidV4();
+            const newChat = {
+                senderId: senderObjectId,
+                receiverId: receiverObjectId,
+                roomId: newRoomId,
+                updatedAt: Date.now() // Ensure updatedAt is set
+            };
 
-                    const newRoomId = uuidV4();
-                    // The case Where chat dosenot Exisits
-                    const newChat = {
-                        ...users, roomId: uuidV4()
-                    }
-
-                    socket.emit('openChat', { ...newChat });
-                    await new Chats({
-                        senderEmail: users.senderEmail,
-                        receiverEmail: users.receiverEmail,
-                        roomId: newRoomId
-                    }).save();
-                }
-
+            socket.emit('openChat', { ...newChat });
+            new Chats(newChat).save().catch((error) => {
+                console.error('Error saving new chat:', error);
             });
         }
+    }).catch((error) => {
+        console.error('Error adding user to chat:', error);
     });
-
 };
 
 module.exports = { addUser };
