@@ -5,16 +5,14 @@ const socketio = require('socket.io');
 const appRouter = require('./routes/appLinks');
 const userRouter = require('./routes/usersRouter');
 const checkNetworkConnectivity = require('./middleware/CheckNetwork');
-
 const connectDB = require('./Connection/Connection'); // Import the connectDB function
 
 const app = express();
 const server = http.createServer(app);
 const io = socketio(server).sockets;
 
-// * BorderParser Middleware
+// Middleware
 app.use(express.json());
-
 app.use(checkNetworkConnectivity);
 app.use(appRouter);
 app.use(userRouter);
@@ -36,4 +34,4 @@ const startServer = async () => {
   }
 };
 
-startServer(); // Start the server
+startServer();

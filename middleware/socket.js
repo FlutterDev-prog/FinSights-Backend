@@ -92,7 +92,6 @@ module.exports = (app, io, db) => {
       }
     });
 
-
     socket.on('startUniqueChat', ({ senderId, receiverId }) => {
       console.log("Hello in unique chat");
       addUser({ receiverId, senderId }, socket);
