@@ -46,17 +46,19 @@ const userSchema = new mongoose.Schema({
         type: Boolean,
         default: false,
     },
+    isActive: {
+        type: Boolean,
+        default: false
+    },
     tokens: [
         {
             token: {
                 type: String,
             },
-        },
-        {
             deviceToken: {
                 type: String,
             },
-        }
+        },
     ],
     avatar: {
         type: Buffer,
@@ -87,7 +89,7 @@ userSchema.methods.toJSON = function () {
 userSchema.methods.generateAuthToken = async function (deviceToken) {
     const user = this;
     const token = jwt.sign({ _id: user._id.toString() }, 'thisismyprivatekey');
-    user.tokens.push({ token, deviceToken });
+    user.tokens.push({ token: token, deviceToken: deviceToken });
     await user.save();
     return token;
 };

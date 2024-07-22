@@ -4,6 +4,8 @@ const http = require('http');
 const socketio = require('socket.io');
 const appRouter = require('./routes/appLinks');
 const userRouter = require('./routes/usersRouter');
+const requestUser = require('./routes/requestHandler');
+const notifyRouter = require('./routes/notification');
 const checkNetworkConnectivity = require('./middleware/CheckNetwork');
 const connectDB = require('./Connection/Connection'); // Import the connectDB function
 
@@ -14,8 +16,11 @@ const io = socketio(server).sockets;
 // Middleware
 app.use(express.json());
 app.use(checkNetworkConnectivity);
+
+app.use(requestUser);
 app.use(appRouter);
 app.use(userRouter);
+app.use(notifyRouter);
 
 const startServer = async () => {
   try {

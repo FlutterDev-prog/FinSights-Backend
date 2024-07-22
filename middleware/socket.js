@@ -2,10 +2,9 @@ const { GridFSBucket, UUID } = require('mongodb');
 const fs = require('fs');
 const Chats = require('../schema/Chats');
 const Messages = require('../schema/Messages');
-const { addUser } = require('../helpers/misc');
+const Notification = require('../schema/notification');
 const mongoose = require('mongoose');
 const User = require('../schema/users');
-const { v4: uuidV4 } = require("uuid");
 
 module.exports = (app, io, db) => {
   // Ensure db is correctly passed and accessible
@@ -19,6 +18,7 @@ module.exports = (app, io, db) => {
   io.on("connection", function (socket) {
     socket.on('getUserChats', async ({ senderId }) => {
       try {
+        console.log('Fetching chats for senderId:', senderId);
         const chatRooms = await Chats.aggregate([
           {
             $match: {
@@ -45,6 +45,21 @@ module.exports = (app, io, db) => {
             }
           },
           {
+            $addFields: {
+              otherUserDetails: {
+                $cond: {
+                  if: { $eq: ['$senderId', new mongoose.Types.ObjectId(senderId)] },
+                  then: {
+                    $arrayElemAt: ['$receiverDetails', 0]
+                  },
+                  else: {
+                    $arrayElemAt: ['$senderDetails', 0]
+                  }
+                }
+              }
+            }
+          },
+          {
             $project: {
               _id: 1,
               roomId: 1,
@@ -52,31 +67,16 @@ module.exports = (app, io, db) => {
               receiverId: 1,
               updatedAt: 1,
               otherUserDetails: {
-                $cond: {
-                  if: { $eq: ['$senderId', new mongoose.Types.ObjectId(senderId)] },
-                  then: {
-                    _id: { $arrayElemAt: ['$receiverDetails._id', 0] },
-                    firstName: { $arrayElemAt: ['$receiverDetails.firstName', 0] },
-                    userName: { $arrayElemAt: ['$receiverDetails.userName', 0] },
-                    email: { $arrayElemAt: ['$receiverDetails.email', 0] },
-                    phone: { $arrayElemAt: ['$receiverDetails.phone', 0] },
-                    isGoogleAccount: { $arrayElemAt: ['$receiverDetails.isGoogleAccount', 0] },
-                    createdAt: { $arrayElemAt: ['$receiverDetails.createdAt', 0] },
-                    updatedAt: { $arrayElemAt: ['$receiverDetails.updatedAt', 0] },
-                    __v: { $arrayElemAt: ['$receiverDetails.__v', 0] }
-                  },
-                  else: {
-                    _id: { $arrayElemAt: ['$senderDetails._id', 0] },
-                    firstName: { $arrayElemAt: ['$senderDetails.firstName', 0] },
-                    userName: { $arrayElemAt: ['$senderDetails.userName', 0] },
-                    email: { $arrayElemAt: ['$senderDetails.email', 0] },
-                    phone: { $arrayElemAt: ['$senderDetails.phone', 0] },
-                    isGoogleAccount: { $arrayElemAt: ['$senderDetails.isGoogleAccount', 0] },
-                    createdAt: { $arrayElemAt: ['$senderDetails.createdAt', 0] },
-                    updatedAt: { $arrayElemAt: ['$senderDetails.updatedAt', 0] },
-                    __v: { $arrayElemAt: ['$senderDetails.__v', 0] }
-                  }
-                }
+                _id: '$otherUserDetails._id',
+                firstName: '$otherUserDetails.firstName',
+                userName: '$otherUserDetails.userName',
+                email: '$otherUserDetails.email',
+                phone: '$otherUserDetails.phone',
+                isActive: '$otherUserDetails.isActive',
+                isGoogleAccount: '$otherUserDetails.isGoogleAccount',
+                createdAt: '$otherUserDetails.createdAt',
+                updatedAt: '$otherUserDetails.updatedAt',
+                __v: '$otherUserDetails.__v'
               }
             }
           },
@@ -85,10 +85,10 @@ module.exports = (app, io, db) => {
           }
         ]);
 
-        console.log(chatRooms);
+        console.log('Aggregated chat rooms:', JSON.stringify(chatRooms, null, 2));
         io.emit('userChats', chatRooms);
       } catch (e) {
-        console.error(e);
+        console.error('Error fetching user chats:', e);
       }
     });
 
@@ -196,6 +196,13 @@ module.exports = (app, io, db) => {
         console.error('Error loading chats:', error);
         socket.emit('error', 'Error loading chats');
       }
+    });
+
+    socket.on('updateStatus', async (data) => {
+      const { userId, isActive } = data;
+
+      await User.findByIdAndUpdate({ _id: userId }, { isActive: isActive });
+      socket.emit('updatedStatus')
     });
   });
 }

@@ -23,7 +23,7 @@ router.post('/users/login', async (req, res) => {
         const token = await user.generateAuthToken(deviceToken);
         res.status(200).send({ user, token });
     } catch (e) {
-        res.status(400).send({error: e.message});
+        res.status(400).send({ error: e.message });
         console.log(e);
     }
 });
@@ -87,16 +87,20 @@ router.post('/users', async (req, res) => {
         if (/\s/.test(req.body.userName.trim())) {
             res.status(400).send('Username should not contain spaces');
         } else {
+            const token = await user.generateAuthToken(req.body.deviceToken);
             await user.save();
-            res.status(201).send(user);
+            res.status(201).send({ user, token });
         }
     } catch (e) {
         if (e.keyValue && e.keyValue.email === user.email) {
             res.status(400).send('Email already exists');
+            console.log(e.message);
         } else if (e.keyValue && e.keyValue.userName === user.userName) {
             res.status(400).send('Username already exists');
+            console.log(e.message);
         } else {
             res.status(400).send(e.message);
+            console.log(e.message);
         }
     }
 });
@@ -120,20 +124,26 @@ router.get('/users', auth, async (req, res) => {
 
 // avater image
 
-router.post('/users/avatar/:user', upload.single('avatar'), async (req, res) => {
+router.post('/users/avatar/:userName', upload.single('avatar'), async (req, res) => {
     try {
-        const userName = req.params.user;
-        const user = User.findOne({ userName })
-        if (!user) return res.status(404).send("User Not Found")
+        const userName = req.params.userName;
+
+        const user = await User.findOne({ userName });
+
+        if (!user) return res.status(404).send("User Not Found");
+
         user.avatar = req.file.buffer;
-        await req.user.save();
+
+        await user.save();
+
         res.status(200).send(user);
     } catch (e) {
+        // Handle errors
         res.status(400).send({ error: e.message });
+        console.error(e);
     }
-}, (err, req, res, next) => {
-    res.status(400).send({ error: err.message });
 });
+
 
 // show avatar
 
@@ -167,9 +177,9 @@ router.get('/users/me', auth, async (req, res) => {
 router.get('/users/:id', async (req, res) => {
     console.log(req.params);
     try {
-        const user = await User.findById(req.params.id);
+        const user = await User.findById({ _id : req.params.id });
         if (!user) return res.status(404).send("User not found");
-        res.status(200).send(user);
+        res.status(200).send({user});
     } catch (e) {
         res.status(500).send(e.message);
     }
