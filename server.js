@@ -6,6 +6,7 @@ const appRouter = require('./routes/appLinks');
 const userRouter = require('./routes/usersRouter');
 const requestUser = require('./routes/requestHandler');
 const notifyRouter = require('./routes/notification');
+const chatRouter = require('./routes/ChatsRoute');
 const checkNetworkConnectivity = require('./middleware/CheckNetwork');
 const connectDB = require('./Connection/Connection'); // Import the connectDB function
 
@@ -21,12 +22,13 @@ app.use(requestUser);
 app.use(appRouter);
 app.use(userRouter);
 app.use(notifyRouter);
+app.use(chatRouter);
 
 const startServer = async () => {
   try {
-    const db = await connectDB();
+    const db = await connectDB(); // Connect to MongoDB
 
-    require('./middleware/socket')(app, io, db);
+    require('./middleware/socket')(app, io, db); // Pass the DB connection to the socket middleware
 
     const port = process.env.PORT || 5000;
 

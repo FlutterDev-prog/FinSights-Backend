@@ -1,13 +1,31 @@
-const { GridFSBucket, UUID } = require('mongodb');
+const { GridFSBucket } = require('mongodb');
 const fs = require('fs');
 const Chats = require('../schema/Chats');
 const Messages = require('../schema/Messages');
-const Notification = require('../schema/notification');
 const mongoose = require('mongoose');
 const User = require('../schema/users');
+const moment = require('moment-timezone');
+
+const incrementUnreadMessageCount = async (roomId, receiverId) => {
+  await Chats.updateOne(
+    { roomId: roomId, receiverId: receiverId },
+    { $inc: { unreadMessageCount: 1 } }
+  );
+};
+
+const markMessagesAsRead = async (roomId, receiverId) => {
+  await Messages.updateMany(
+    { roomId: roomId, receiverId: receiverId, read: false },
+    { $set: { read: true } }
+  );
+
+  await Chats.updateOne(
+    { roomId: roomId, receiverId: receiverId },
+    { $set: { unreadMessageCount: 0 } }
+  );
+};
 
 module.exports = (app, io, db) => {
-  // Ensure db is correctly passed and accessible
   if (!db || !db.db) {
     console.error('MongoDB connection is not available.');
     return;
@@ -16,86 +34,7 @@ module.exports = (app, io, db) => {
   const bucket = new GridFSBucket(db.db);
 
   io.on("connection", function (socket) {
-    socket.on('getUserChats', async ({ senderId }) => {
-      try {
-        console.log('Fetching chats for senderId:', senderId);
-        const chatRooms = await Chats.aggregate([
-          {
-            $match: {
-              $or: [
-                { senderId: new mongoose.Types.ObjectId(senderId) },
-                { receiverId: new mongoose.Types.ObjectId(senderId) }
-              ]
-            }
-          },
-          {
-            $lookup: {
-              from: 'users',
-              localField: 'senderId',
-              foreignField: '_id',
-              as: 'senderDetails'
-            }
-          },
-          {
-            $lookup: {
-              from: 'users',
-              localField: 'receiverId',
-              foreignField: '_id',
-              as: 'receiverDetails'
-            }
-          },
-          {
-            $addFields: {
-              otherUserDetails: {
-                $cond: {
-                  if: { $eq: ['$senderId', new mongoose.Types.ObjectId(senderId)] },
-                  then: {
-                    $arrayElemAt: ['$receiverDetails', 0]
-                  },
-                  else: {
-                    $arrayElemAt: ['$senderDetails', 0]
-                  }
-                }
-              }
-            }
-          },
-          {
-            $project: {
-              _id: 1,
-              roomId: 1,
-              senderId: 1,
-              receiverId: 1,
-              updatedAt: 1,
-              otherUserDetails: {
-                _id: '$otherUserDetails._id',
-                firstName: '$otherUserDetails.firstName',
-                userName: '$otherUserDetails.userName',
-                email: '$otherUserDetails.email',
-                phone: '$otherUserDetails.phone',
-                isActive: '$otherUserDetails.isActive',
-                isGoogleAccount: '$otherUserDetails.isGoogleAccount',
-                createdAt: '$otherUserDetails.createdAt',
-                updatedAt: '$otherUserDetails.updatedAt',
-                __v: '$otherUserDetails.__v'
-              }
-            }
-          },
-          {
-            $sort: { updatedAt: -1 }
-          }
-        ]);
-
-        console.log('Aggregated chat rooms:', JSON.stringify(chatRooms, null, 2));
-        io.emit('userChats', chatRooms);
-      } catch (e) {
-        console.error('Error fetching user chats:', e);
-      }
-    });
-
-    socket.on('startUniqueChat', ({ senderId, receiverId }) => {
-      console.log("Hello in unique chat");
-      addUser({ receiverId, senderId }, socket);
-    });
+    console.log('New socket connection established');
 
     socket.on('joinTwoUsers', ({ roomId }) => {
       socket.join(roomId);
@@ -116,15 +55,18 @@ module.exports = (app, io, db) => {
             { senderId: receiverObjectId, receiverId: senderObjectId }
           ]
         },
-        { $set: { updatedAt: Date.now() } }
+        { $set: { updatedAt: moment().tz('Asia/Kolkata').format() } }
       );
 
       try {
+        const istDate = moment().tz('Asia/Kolkata').format();
         const newMessage = new Messages({
           roomId,
           senderId,
           receiverId,
           message,
+          createdAt: istDate,
+          updatedAt: istDate,
         });
 
         if (file) {
@@ -148,6 +90,9 @@ module.exports = (app, io, db) => {
               try {
                 await newMessage.save();
                 console.log('Message saved successfully');
+                if (senderId !== receiverId) { // Ensure that unread message count is incremented only for the receiver
+                  await incrementUnreadMessageCount(roomId, receiverId);
+                }
               } catch (error) {
                 console.error('Error saving message after file upload:', error);
               }
@@ -156,6 +101,9 @@ module.exports = (app, io, db) => {
         } else {
           await newMessage.save();
           console.log('Message saved successfully');
+          if (senderId !== receiverId) { // Ensure that unread message count is incremented only for the receiver
+            await incrementUnreadMessageCount(roomId, receiverId);
+          }
         }
       } catch (error) {
         console.error('Error saving message:', error);
@@ -165,7 +113,6 @@ module.exports = (app, io, db) => {
     socket.on('load_user_chats', async (data) => {
       const { receiverId, senderId } = data;
 
-      // Convert string IDs to ObjectId
       const senderObjectId = new mongoose.Types.ObjectId(senderId);
       const receiverObjectId = new mongoose.Types.ObjectId(receiverId);
 
@@ -202,7 +149,18 @@ module.exports = (app, io, db) => {
       const { userId, isActive } = data;
 
       await User.findByIdAndUpdate({ _id: userId }, { isActive: isActive });
-      socket.emit('updatedStatus')
+      socket.broadcast.emit('updatedStatus', { userId, isActive });
+    });
+
+    socket.on('markMessagesAsRead', async (data) => {
+      const { roomId, receiverId } = data;
+      try {
+        await markMessagesAsRead(roomId, receiverId); // Mark messages as read
+        console.log('Messages marked as read successfully');
+        socket.broadcast.emit('markedAsRead');
+      } catch (error) {
+        console.error('Error marking messages as read:', error);
+      }
     });
   });
-}
+};

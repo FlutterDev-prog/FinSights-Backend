@@ -1,20 +1,17 @@
 const mongoose = require('mongoose');
 const config = require('config');
 
-const dbURI = config.get('mongoURI'); // Get the MongoDB URI from config
+const connectDB = async () => {
+    const dbURI = config.get('mongoURI'); // Ensure you have your MongoDB URI in your configuration file
 
-const connectDB = () => {
-    return new Promise((resolve, reject) => {
-        mongoose.connect(dbURI)
-            .then(() => {
-                console.log('MongoDB connected');
-                resolve(mongoose.connection); // Resolve with the mongoose connection
-            })
-            .catch(err => {
-                console.error('MongoDB connection error:', err);
-                reject(err); // Reject with the error
-            });
-    });
-}
+    try {
+        await mongoose.connect(dbURI);
+        console.log('MongoDB connected successfully');
+        return mongoose.connection; // Return the connection object
+    } catch (error) {
+        console.error('MongoDB connection error:', error);
+        throw error;
+    }
+};
 
 module.exports = connectDB;
