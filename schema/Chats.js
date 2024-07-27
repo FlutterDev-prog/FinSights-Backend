@@ -7,6 +7,7 @@ const ChatsSchema = new Schema({
     senderId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
     receiverId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
     roomId: { type: String, required: true },
+    lastMessage: { type: String, deefault: "" },
     updatedAt: { type: Date, default: Date.now }
 }, { timestamps: true });
 

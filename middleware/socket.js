@@ -40,10 +40,73 @@ module.exports = (app, io, db) => {
       socket.join(roomId);
     });
 
-    socket.on('sendToUser', async (data) => {
-      socket.broadcast.to(data.roomId).emit('dispatchMsg', { ...data });
+    socket.on('clearChat', async ({ roomId }) => {
+      await Messages.deleteMany({ 'roomId': roomId })
+      socket.emit('clearedChat');
+    });
 
+    socket.on('blockUser', async ({ userId, blockUserId }) => {
+      try {
+        const user = await User.findById(userId);
+        if (!user) {
+          return socket.emit('error', 'User not found');
+        }
+
+        if (!user.blockedUsers.includes(blockUserId)) {
+          user.blockedUsers.push(blockUserId);
+          await user.save();
+          socket.emit('userBlocked', blockUserId);
+          console.log(`User ${userId} blocked user ${blockUserId}`);
+        } else {
+          socket.emit('error', 'User already blocked');
+        }
+      } catch (error) {
+        console.error('Error blocking user:', error);
+        socket.emit('error', 'Error blocking user');
+      }
+    });
+
+    socket.on('clearChat', async ({ roomId }) => {
+      await Messages.deleteMany({ 'roomId': roomId });
+      socket.broadcast.to(roomId).emit('clearedChats');
+    });
+
+    socket.on('unblockUser', async ({ userId, unblockUserId }) => {
+      try {
+        const user = await User.findById(userId);
+        if (!user) {
+          return socket.emit('error', 'User not found');
+        }
+
+        if (user.blockedUsers.includes(unblockUserId)) {
+          user.blockedUsers = user.blockedUsers.filter(id => id.toString() !== unblockUserId);
+          await user.save();
+          socket.emit('userUnblocked', unblockUserId);
+          console.log(`User ${userId} unblocked user ${unblockUserId}`);
+        } else {
+          socket.emit('error', 'User is not blocked');
+        }
+      } catch (error) {
+        console.error('Error unblocking user:', error);
+        socket.emit('error', 'Error unblocking user');
+      }
+    });
+
+    socket.on('sendToUser', async (data) => {
       const { roomId, senderId, receiverId, message, file } = data;
+
+      const sender = await User.findById(senderId);
+      const receiver = await User.findById(receiverId);
+
+      if (sender.blockedUsers.includes(receiverId)) {
+        return socket.emit('error', 'You cannot send a message to this user as they have blocked you.');
+      }
+
+      if (receiver.blockedUsers.includes(senderId)) {
+        return socket.emit('error', 'You cannot send a message to this user as you have blocked them.');
+      }
+
+      socket.broadcast.to(data.roomId).emit('dispatchMsg', { ...data });
 
       const senderObjectId = new mongoose.Types.ObjectId(senderId);
       const receiverObjectId = new mongoose.Types.ObjectId(receiverId);
@@ -89,9 +152,14 @@ module.exports = (app, io, db) => {
 
               try {
                 await newMessage.save();
+                await Chats.findByIdAndUpdate(
+                  { _id: roomId },
+                  { lastMessage: message }
+                );
                 console.log('Message saved successfully');
-                if (senderId !== receiverId) { // Ensure that unread message count is incremented only for the receiver
+                if (senderId !== receiverId) {
                   await incrementUnreadMessageCount(roomId, receiverId);
+                  socket.emit('unreadAdded');
                 }
               } catch (error) {
                 console.error('Error saving message after file upload:', error);
@@ -100,8 +168,13 @@ module.exports = (app, io, db) => {
 
         } else {
           await newMessage.save();
+          await Chats.findByIdAndUpdate(
+            { _id: roomId },
+            { lastMessage: message }
+          );
           console.log('Message saved successfully');
-          if (senderId !== receiverId) { // Ensure that unread message count is incremented only for the receiver
+
+          if (senderId !== receiverId) {
             await incrementUnreadMessageCount(roomId, receiverId);
           }
         }
@@ -116,10 +189,12 @@ module.exports = (app, io, db) => {
       const senderObjectId = new mongoose.Types.ObjectId(senderId);
       const receiverObjectId = new mongoose.Types.ObjectId(receiverId);
 
-      console.log('Sender ObjectId:', senderObjectId);
-      console.log('Receiver ObjectId:', receiverObjectId);
-
       try {
+        const sender = await User.findById(senderId);
+        if (sender.blockedUsers.includes(receiverId)) {
+          return socket.emit('loadUniqueChat', []);
+        }
+
         const chats = await Messages.aggregate([
           {
             $match: {
@@ -134,11 +209,7 @@ module.exports = (app, io, db) => {
           }
         ]);
 
-        if (chats.length > 0) {
-          socket.emit('loadUniqueChat', chats);
-        } else {
-          socket.emit('loadUniqueChat', []);
-        }
+        socket.emit('loadUniqueChat', chats);
       } catch (error) {
         console.error('Error loading chats:', error);
         socket.emit('error', 'Error loading chats');

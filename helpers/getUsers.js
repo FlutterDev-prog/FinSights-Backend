@@ -18,12 +18,6 @@ const usersWithoutChat = async ({ senderId }) => {
                 }
             },
             {
-                $project: {
-                    senderId: 1,
-                    receiverId: 1
-                }
-            },
-            {
                 $group: {
                     _id: null,
                     uniqueUsers: {
@@ -36,29 +30,42 @@ const usersWithoutChat = async ({ senderId }) => {
                         }
                     }
                 }
+            },
+            {
+                $project: {
+                    _id: 0,
+                    uniqueUsers: 1
+                }
             }
         ]);
 
         const uniqueChatUsers = chatUsers.length > 0 ? chatUsers[0].uniqueUsers : [];
 
+        // Step 2: Find users who are not in the chat list and not the sender
         const usersList = await User.find({
-            _id: { $nin: uniqueChatUsers },
-            _id: { $ne: senderObjectId }
-        }).limit(10).select('_id');
+            _id: { $nin: uniqueChatUsers.concat(senderObjectId) }
+        })
+        .limit(10)
+        .select('_id');
 
         const userIds = usersList.map(user => user._id);
+
+        // Step 3: Find users who have already been notified
         const notifiedUsers = await Notification.find({
             $or: [
                 { senderId: senderObjectId, receiverId: { $in: userIds } },
                 { receiverId: senderObjectId, senderId: { $in: userIds } }
             ]
-        }).select('senderId receiverId');
-        const notifiedUserIds = notifiedUsers.reduce((ids, notification) => {
-            ids.add(notification.senderId.toString());
-            ids.add(notification.receiverId.toString());
-            return ids;
-        }, new Set());
+        })
+        .select('senderId receiverId');
 
+        const notifiedUserIds = new Set();
+        notifiedUsers.forEach(notification => {
+            notifiedUserIds.add(notification.senderId.toString());
+            notifiedUserIds.add(notification.receiverId.toString());
+        });
+
+        // Step 4: Filter out notified users from the user list
         const filteredUsers = usersList.filter(user => !notifiedUserIds.has(user._id.toString()));
         const uniqueUsers = await User.find({ _id: { $in: filteredUsers.map(user => user._id) } });
 
